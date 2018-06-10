@@ -22,9 +22,13 @@ from flatbuffers.number_types import (
 )
 
 try:
-    from .cflattr.builder import Builder
+    from .cflattr.builder import Builder, FieldType, Field, Blueprint
+
+    has_c_flattrs = True
 except ImportError:
     from flatbuffers.builder import Builder
+
+    has_c_flattrs = False
 
 
 UNION_CL = "__fb_union_cl"
@@ -82,12 +86,16 @@ def _make_fb_functions(cl):
     enums = []
     inlines = []
     unions = []
+
+    blueprint_fields = []
+
     for field in fields(cl):
         type = field.type
+        name = field.name
         if type is str:
-            strings.append(field.name)
+            strings.append(name)
         elif type in (bytes, bytearray):
-            byte_fields.append(field.name)
+            byte_fields.append(name)
         elif has(type):
             tables.append(field.name)
         elif getattr(type, "__origin__", None) is Union:
@@ -119,7 +127,16 @@ def _make_fb_functions(cl):
         elif issubclass(type, IntEnum):
             enums.append(field.name)
         else:
-            inlines.append(field.name)
+            inlines.append(name)
+            if has_c_flattrs:
+                fb_type, slot_offset = _get_scalar_type(cl, name)
+                blueprint_fields.append(
+                    Field(
+                        slot_offset,
+                        name,
+                        fb_number_type_to_cflattr_type[fb_type],
+                    )
+                )
 
     setattr(
         cl,
@@ -173,10 +190,21 @@ def _make_fb_functions(cl):
             lists_of_scalars,
         ),
     )
+    if has_c_flattrs:
+        cl.__blueprint__ = Blueprint(
+            _get_num_slots(getattr(cl.__fb_module__, f"{cl.__name__}Start")),
+            blueprint_fields,
+        )
 
 
 def model_to_bytes(inst, builder: Optional[Builder] = None) -> bytes:
     builder = Builder(10000) if builder is None else builder
+
+    if hasattr(builder, 'add_by_blueprint'):
+        last_offset = builder.add_by_blueprint(inst)
+        builder.Finish(last_offset)
+        return bytes(builder.Output())
+
     byte_items, fb_items = inst.__fb_nonnestables__()
     string_offsets = {}
     node_offsets = {id(bi): builder.CreateString(bi) for bi in byte_items}
@@ -223,6 +251,21 @@ fb_number_type_to_builder_prepend = {
     Float32Flags: "PrependFloat32",
     Float64Flags: "PrependFloat64",
 }
+
+if has_c_flattrs:
+    fb_number_type_to_cflattr_type = {
+        BoolFlags: FieldType.bool,
+        Uint8Flags: FieldType.uint8,
+        Uint16Flags: FieldType.uint16,
+        Uint32Flags: FieldType.uint32,
+        Uint64Flags: FieldType.uint64,
+        Int8Flags: FieldType.int8,
+        Int16Flags: FieldType.int16,
+        Int32Flags: FieldType.int32,
+        Int64Flags: FieldType.int64,
+        Float32Flags: FieldType.float32,
+        Float64Flags: FieldType.float64,
+    }
 
 
 def _make_nonnestables_fn(
@@ -657,6 +700,31 @@ def _get_offsets_for_string(fn) -> Tuple[int, int]:
     d = DummyBuilder()
     fn(d, sentinel)
     return d.slot_num, d.default
+
+
+def _get_scalar_type(cl, fname: str) -> Tuple[Any, int]:
+    """Fish out the scalar type from a FB class."""
+
+    class DummyTab:
+        def Offset(self, x):
+            self.slot_offset = (x - 4) / 2
+            return 1
+
+        def Get(self, number_type, _):
+            self.scalar_type = number_type
+            return object()
+
+        @property
+        def Pos(self):
+            return 0
+
+    tab = DummyTab()
+    inst = cl.__fb_class__()
+    inst._tab = tab
+    norm_field_name = f"{fname[0].upper()}{fname[1:]}"
+    getattr(inst, norm_field_name)()
+
+    return tab.scalar_type, tab.slot_offset
 
 
 def _get_scalar_list_type(cl, fname: str) -> Any:

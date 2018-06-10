@@ -26,30 +26,7 @@ from flatbuffers import encode
 ## @addtogroup flatbuffers_python_api
 ## @{
 
-
-#cdef Flags BoolFlags = Flags(1, False, True, bool, "bool", struct.Struct("?"), True)
-#cdef Flags Uint8Flags = Flags(1, 0, 0, int, "uint8", struct.Struct("<B"), True)
-#cdef Flags Uint16Flags = Flags(2, 0, 0, int, "uint16", struct.Struct("<H"), True)
-#cdef Flags Uint32Flags = Flags(4, 0, 0, int, "uint32", struct.Struct("<I"), True)
-#cdef Flags Uint64Flags = Flags(8, 0, 0, int, "uint64", struct.Struct("<Q"), True)
-
-
-#cdef Flags Int8Flags = Flags(1, 0, 0, int, "int8", struct.Struct("<b"), True)
-#cdef Flags Int16Flags = Flags(2, 0, 0, int, "int16", struct.Struct("<h"), True)
-#cdef Flags Int32Flags = Flags(4, 0, 0, int, "int32", struct.Struct("<i"), True)
-#cdef Flags Int64Flags = Flags(8, 0, 0, int, "int64", struct.Struct("<q"), True)
-
-#cdef Flags Float32Flags = Flags(4, 0, 0, float, "float32", struct.Struct("<f"), False)
-#cdef Flags Float64Flags = Flags(8, 0, 0, float, "float64", struct.Struct("<d"), False)
-
-#cdef uoffset = struct.Struct("<I")
-#cdef soffset = struct.Struct("<i")
 cdef voffset = struct.Struct("<H")
-
-
-#cdef Flags SOffsetTFlags = Int32Flags
-#cdef Flags UOffsetTFlags = Uint32Flags
-#cdef Flags VOffsetTFlags = Uint16Flags
 
 cdef struct FlatbufferType:
     uint8_t bytewidth
@@ -66,6 +43,40 @@ cdef FlatbufferType Fb_int32_t = FlatbufferType(4)
 cdef FlatbufferType Fb_int64_t = FlatbufferType(8)
 cdef FlatbufferType Fb_float32_t = FlatbufferType(4)
 cdef FlatbufferType Fb_float64_t = FlatbufferType(8)
+
+
+cpdef enum FieldType:
+    bool,
+    uint8,
+    uint16,
+    uint32,
+    uint64,
+    int8,
+    int16,
+    int32,
+    int64,
+    float32,
+    float64,
+
+
+cdef class Field:
+    cdef uint8_t slot_num;
+    cdef object name
+    cdef FieldType type
+
+    def __init__(self, slot_num, name, type):
+        self.slot_num = slot_num
+        self.name = name
+        self.type = type
+
+
+cdef class Blueprint:
+    cdef uint8_t num_slots
+    cdef list fields
+
+    def __init__(self, num_slots, fields):
+        self.num_slots = num_slots
+        self.fields = fields
 
 
 cdef inline void Write(packer_type, buf, Py_ssize_t head, Py_ssize_t n):
@@ -666,7 +677,7 @@ cdef class Builder(object):
     def PrependUint32Slot(self, Py_ssize_t o, uint32_t x, uint32_t d):
         self.PrependSlot(&Fb_uint32_t, o, x, d)
 
-    def PrependUint64Slot(self, Py_ssize_t o, uint64_t x, uint64_t d):
+    cpdef PrependUint64Slot(self, Py_ssize_t o, uint64_t x, uint64_t d):
         self.PrependSlot(&Fb_uint64_t, o, x, d)
 
     def PrependInt8Slot(self, Py_ssize_t o, int8_t x, int8_t d):
@@ -681,14 +692,14 @@ cdef class Builder(object):
     def PrependInt64Slot(self, Py_ssize_t o, int64_t x, int64_t d):
         self.PrependSlot(&Fb_int64_t, o, x, d)
 
-    def PrependFloat32Slot(self, Py_ssize_t o, float x, float d):
+    cpdef PrependFloat32Slot(self, Py_ssize_t o, float x, float d):
         if x != d:
             self.Prep(Fb_float32_t.bytewidth, 0)
             self.head = self.head - Fb_float32_t.bytewidth
             writeFloat32(x, self.buffer, self.head)
             self.Slot(o)
 
-    def PrependFloat64Slot(self, Py_ssize_t o, double x, double d):
+    cpdef PrependFloat64Slot(self, Py_ssize_t o, double x, double d):
         if x != d:
             self.Prep(Fb_float64_t.bytewidth, 0)
             self.head = self.head - Fb_float64_t.bytewidth
@@ -868,6 +879,44 @@ if x != d:
         #Write(uoffset, self.Bytes, self.head, x)
         writeUint32(x, self.buffer, self.head)
     ## @endcond
+
+    def add_by_blueprint(self, inst):
+        cdef Blueprint blueprint = inst.__blueprint__
+        self.StartObject(blueprint.num_slots)
+
+        cdef Field field
+        cdef FieldType field_type
+
+        for f in blueprint.fields:
+            field = f
+            val = getattr(inst, field.name)
+            field_type = field.type
+
+            if field_type == FieldType.bool:
+                self.PrependSlot(&Fb_bool_t, field.slot_num, val, 0)
+            elif field_type == FieldType.uint8:
+                self.PrependSlot(&Fb_uint8_t, field.slot_num, val, 0)
+            elif field_type == FieldType.uint16:
+                self.PrependSlot(&Fb_uint16_t, field.slot_num, val, 0)
+            elif field_type == FieldType.uint32:
+                self.PrependSlot(&Fb_uint32_t, field.slot_num, val, 0)
+            elif field_type == FieldType.uint64:
+                self.PrependUint64Slot(field.slot_num, val, 0)
+            elif field_type == FieldType.int8:
+                self.PrependSlot(&Fb_int8_t, field.slot_num, val, 0)
+            elif field_type == FieldType.int16:
+                self.PrependSlot(&Fb_int16_t, field.slot_num, val, 0)
+            elif field_type == FieldType.int32:
+                self.PrependSlot(&Fb_int32_t, field.slot_num, val, 0)
+            elif field_type == FieldType.int64:
+                self.PrependSlot(&Fb_int64_t, field.slot_num, val, 0)
+            elif field_type == FieldType.float32:
+                self.PrependFloat32Slot(field.slot_num, val, 0.0)
+            elif field_type == FieldType.float64:
+                self.PrependFloat64Slot(field.slot_num, val, 0.0)
+
+        return self.EndObject()
+
 
 ## @cond FLATBUFFERS_INTERNAL
 def vtableEqual(a, objectStart, b):
