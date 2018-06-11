@@ -321,7 +321,7 @@ cdef class Builder(object):
         return res
 
     ## @cond FLATBUFFERS_INTERNAL
-    def StartObject(self, int numfields):
+    cpdef StartObject(self, int numfields):
         """StartObject initializes bookkeeping for writing a new object."""
 
         self.assertNotNested()
@@ -419,7 +419,7 @@ cdef class Builder(object):
         self.current_vtable_length = 0
         return objectOffset
 
-    def EndObject(self):
+    cpdef EndObject(self):
         """EndObject writes data necessary to finish object construction."""
         self.assertNested()
         self.nested = False
