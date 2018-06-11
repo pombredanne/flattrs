@@ -57,6 +57,7 @@ cpdef enum FieldType:
     int64,
     float32,
     float64,
+    string,
 
 
 cdef class Field:
@@ -72,11 +73,12 @@ cdef class Field:
 
 cdef class Blueprint:
     cdef uint8_t num_slots
-    cdef list fields
+    cdef list fields, string_fields
 
-    def __init__(self, num_slots, fields):
+    def __init__(self, num_slots, fields, string_fields):
         self.num_slots = num_slots
         self.fields = fields
+        self.string_fields = string_fields
 
 
 cdef inline void Write(packer_type, buf, Py_ssize_t head, Py_ssize_t n):
@@ -880,12 +882,19 @@ if x != d:
         writeUint32(x, self.buffer, self.head)
     ## @endcond
 
-    def add_by_blueprint(self, inst):
+    def add_by_blueprint(self, object inst, dict strings):
         cdef Blueprint blueprint = inst.__blueprint__
-        self.StartObject(blueprint.num_slots)
 
         cdef Field field
         cdef FieldType field_type
+
+        for f in blueprint.string_fields:
+            field = f
+            val = getattr(inst, field.name)
+            if val not in strings:
+                strings[val] = self.CreateString(val)
+
+        self.StartObject(blueprint.num_slots)
 
         for f in blueprint.fields:
             field = f
@@ -914,6 +923,11 @@ if x != d:
                 self.PrependFloat32Slot(field.slot_num, val, 0.0)
             elif field_type == FieldType.float64:
                 self.PrependFloat64Slot(field.slot_num, val, 0.0)
+        for f in blueprint.string_fields:
+            field = f
+            val = getattr(inst, field.name)
+            self.PrependUOffsetTRelative(strings[val])
+            self.Slot(field.slot_num)
 
         return self.EndObject()
 

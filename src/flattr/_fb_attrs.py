@@ -88,12 +88,24 @@ def _make_fb_functions(cl):
     unions = []
 
     blueprint_fields = []
+    blueprint_string_fields = []
+    mod = cl.__fb_module__
 
     for field in fields(cl):
         type = field.type
         name = field.name
+        norm_field_name = f"{name[0].upper()}{name[1:]}"
         if type is str:
             strings.append(name)
+            blueprint_string_fields.append(
+                Field(
+                    _get_offsets_for_string(
+                        getattr(mod, f"{cl.__name__}Add{norm_field_name}")
+                    )[0],
+                    name,
+                    FieldType.string,
+                )
+            )
         elif type in (bytes, bytearray):
             byte_fields.append(name)
         elif has(type):
@@ -194,19 +206,21 @@ def _make_fb_functions(cl):
         cl.__blueprint__ = Blueprint(
             _get_num_slots(getattr(cl.__fb_module__, f"{cl.__name__}Start")),
             blueprint_fields,
+            blueprint_string_fields,
         )
 
 
 def model_to_bytes(inst, builder: Optional[Builder] = None) -> bytes:
     builder = Builder(10000) if builder is None else builder
 
-    if hasattr(builder, 'add_by_blueprint'):
-        last_offset = builder.add_by_blueprint(inst)
+    string_offsets = {}
+
+    if hasattr(builder, "add_by_blueprint"):
+        last_offset = builder.add_by_blueprint(inst, string_offsets)
         builder.Finish(last_offset)
         return bytes(builder.Output())
 
     byte_items, fb_items = inst.__fb_nonnestables__()
-    string_offsets = {}
     node_offsets = {id(bi): builder.CreateString(bi) for bi in byte_items}
 
     for fb_item, fb_type, fb_vec_start in fb_items:
