@@ -5,7 +5,7 @@ from hypothesis.strategies import composite, text, none, lists, floats
 
 from flattr import model_from_bytes, model_to_bytes
 
-from .models import (
+from .models_trivial import (
     JustAString,
     JustAnOptionalString,
     JustAFloat,

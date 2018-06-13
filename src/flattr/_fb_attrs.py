@@ -22,7 +22,8 @@ from flatbuffers.number_types import (
 )
 
 try:
-    from .cflattr.builder import Builder, FieldType, Field, Blueprint
+    from .cflattr.builder import Builder
+    from .cflattr.blueprints import FieldType, Field, Blueprint
 
     has_c_flattrs = True
 except ImportError:
@@ -89,6 +90,7 @@ def _make_fb_functions(cl):
 
     blueprint_fields = []
     blueprint_string_fields = []
+    bp_opt_string_fields = []
     mod = cl.__fb_module__
 
     for field in fields(cl):
@@ -104,6 +106,7 @@ def _make_fb_functions(cl):
                     )[0],
                     name,
                     FieldType.string,
+                    None,
                 )
             )
         elif type in (bytes, bytearray):
@@ -116,6 +119,18 @@ def _make_fb_functions(cl):
                 # This is an optional field.
                 if union_args[0] is str:
                     optional_strings.append(field.name)
+                    bp_opt_string_fields.append(
+                        Field(
+                            _get_offsets_for_string(
+                                getattr(
+                                    mod, f"{cl.__name__}Add{norm_field_name}"
+                                )
+                            )[0],
+                            name,
+                            FieldType.optional_string,
+                            None,
+                        )
+                    )
                 elif has(union_args[0]):
                     optional_tables.append(field.name)
                 elif issubclass(union_args[0], IntEnum):
@@ -141,12 +156,13 @@ def _make_fb_functions(cl):
         else:
             inlines.append(name)
             if has_c_flattrs:
-                fb_type, slot_offset = _get_scalar_type(cl, name)
+                fb_type, slot_offset, default = _get_scalar_type(cl, name)
                 blueprint_fields.append(
                     Field(
                         slot_offset,
                         name,
                         fb_number_type_to_cflattr_type[fb_type],
+                        default,
                     )
                 )
 
@@ -207,6 +223,7 @@ def _make_fb_functions(cl):
             _get_num_slots(getattr(cl.__fb_module__, f"{cl.__name__}Start")),
             blueprint_fields,
             blueprint_string_fields,
+            bp_opt_string_fields,
         )
 
 
@@ -716,29 +733,71 @@ def _get_offsets_for_string(fn) -> Tuple[int, int]:
     return d.slot_num, d.default
 
 
-def _get_scalar_type(cl, fname: str) -> Tuple[Any, int]:
+def _get_scalar_type(cl, fname: str) -> Tuple[Any, int, int]:
     """Fish out the scalar type from a FB class."""
 
-    class DummyTab:
-        def Offset(self, x):
-            self.slot_offset = (x - 4) / 2
-            return 1
+    class DummyBuilder:
+        def PrependBoolSlot(self, offset, val, default):
+            self.offset = offset
+            self.type = BoolFlags
+            self.default = bool(default)
 
-        def Get(self, number_type, _):
-            self.scalar_type = number_type
-            return object()
+        def PrependUint8Slot(self, offset, val, default):
+            self.offset = offset
+            self.type = Uint8Flags
+            self.default = default
 
-        @property
-        def Pos(self):
-            return 0
+        def PrependUint16Slot(self, offset, val, default):
+            self.offset = offset
+            self.type = Uint16Flags
+            self.default = default
 
-    tab = DummyTab()
-    inst = cl.__fb_class__()
-    inst._tab = tab
+        def PrependUint32Slot(self, offset, val, default):
+            self.offset = offset
+            self.type = Uint32Flags
+            self.default = default
+
+        def PrependUint64Slot(self, offset, val, default):
+            self.offset = offset
+            self.type = Uint64Flags
+            self.default = default
+
+        def PrependInt8Slot(self, offset, val, default):
+            self.offset = offset
+            self.type = Int8Flags
+            self.default = default
+
+        def PrependInt16Slot(self, offset, val, default):
+            self.offset = offset
+            self.type = Int16Flags
+            self.default = default
+
+        def PrependInt32Slot(self, offset, val, default):
+            self.offset = offset
+            self.type = Int32Flags
+            self.default = default
+
+        def PrependInt64Slot(self, offset, val, default):
+            self.offset = offset
+            self.type = Int64Flags
+            self.default = default
+
+        def PrependFloat32Slot(self, offset, val, default):
+            self.offset = offset
+            self.type = Float32Flags
+            self.default = default
+
+        def PrependFloat64Slot(self, offset, val, default):
+            self.offset = offset
+            self.type = Float64Flags
+            self.default = default
+
+    builder = DummyBuilder()
+    mod = cl.__fb_module__
     norm_field_name = f"{fname[0].upper()}{fname[1:]}"
-    getattr(inst, norm_field_name)()
+    getattr(mod, f"{cl.__name__}Add{norm_field_name}")(builder, 0)
 
-    return tab.scalar_type, tab.slot_offset
+    return builder.type, builder.offset, builder.default
 
 
 def _get_scalar_list_type(cl, fname: str) -> Any:

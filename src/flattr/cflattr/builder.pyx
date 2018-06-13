@@ -11,12 +11,15 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
+cimport cython
 from libc.string cimport memcpy, memset
 from libc.stdint cimport uint8_t, uint16_t, uint32_t, uint64_t, int8_t, int16_t, int32_t, int64_t
 from cpython.mem cimport PyMem_Malloc, PyMem_Free
 
 import struct
 
+from .blueprints cimport FieldType, Field, Blueprint
 from .number_types cimport Flags, enforce_number
 
 from flatbuffers import encode
@@ -43,42 +46,6 @@ cdef FlatbufferType Fb_int32_t = FlatbufferType(4)
 cdef FlatbufferType Fb_int64_t = FlatbufferType(8)
 cdef FlatbufferType Fb_float32_t = FlatbufferType(4)
 cdef FlatbufferType Fb_float64_t = FlatbufferType(8)
-
-
-cpdef enum FieldType:
-    bool,
-    uint8,
-    uint16,
-    uint32,
-    uint64,
-    int8,
-    int16,
-    int32,
-    int64,
-    float32,
-    float64,
-    string,
-
-
-cdef class Field:
-    cdef uint8_t slot_num;
-    cdef object name
-    cdef FieldType type
-
-    def __init__(self, slot_num, name, type):
-        self.slot_num = slot_num
-        self.name = name
-        self.type = type
-
-
-cdef class Blueprint:
-    cdef uint8_t num_slots
-    cdef list fields, string_fields
-
-    def __init__(self, num_slots, fields, string_fields):
-        self.num_slots = num_slots
-        self.fields = fields
-        self.string_fields = string_fields
 
 
 cdef inline void Write(packer_type, buf, Py_ssize_t head, Py_ssize_t n):
@@ -451,9 +418,8 @@ cdef class Builder(object):
         """Offset relative to the end of the buffer."""
         return self.buffer_length - self.head
 
-    cdef Pad(self, Py_ssize_t n):
+    cdef void Pad(self, Py_ssize_t n):
         """Pad places zeros at the current offset."""
-        cdef int i
         for i in range(n):
             self.Place(0, &Fb_uint8_t)
 
@@ -882,6 +848,7 @@ if x != d:
         writeUint32(x, self.buffer, self.head)
     ## @endcond
 
+    @cython.boundscheck(False)
     def add_by_blueprint(self, object inst, dict strings):
         cdef Blueprint blueprint = inst.__blueprint__
 
@@ -894,6 +861,12 @@ if x != d:
             if val not in strings:
                 strings[val] = self.CreateString(val)
 
+        for f in blueprint.optional_string_fields:
+            field = f
+            val = getattr(inst, field.name)
+            if val is not None and val not in strings:
+                strings[val] = self.CreateString(val)
+
         self.StartObject(blueprint.num_slots)
 
         for f in blueprint.fields:
@@ -902,32 +875,39 @@ if x != d:
             field_type = field.type
 
             if field_type == FieldType.bool:
-                self.PrependSlot(&Fb_bool_t, field.slot_num, val, 0)
+                self.PrependSlot(&Fb_bool_t, field.slot_num, val, field.default)
             elif field_type == FieldType.uint8:
-                self.PrependSlot(&Fb_uint8_t, field.slot_num, val, 0)
+                self.PrependSlot(&Fb_uint8_t, field.slot_num, val, field.default)
             elif field_type == FieldType.uint16:
-                self.PrependSlot(&Fb_uint16_t, field.slot_num, val, 0)
+                self.PrependSlot(&Fb_uint16_t, field.slot_num, val, field.default)
             elif field_type == FieldType.uint32:
-                self.PrependSlot(&Fb_uint32_t, field.slot_num, val, 0)
+                self.PrependSlot(&Fb_uint32_t, field.slot_num, val, field.default)
             elif field_type == FieldType.uint64:
-                self.PrependUint64Slot(field.slot_num, val, 0)
+                self.PrependUint64Slot(field.slot_num, val, field.default)
             elif field_type == FieldType.int8:
-                self.PrependSlot(&Fb_int8_t, field.slot_num, val, 0)
+                self.PrependSlot(&Fb_int8_t, field.slot_num, val, field.default)
             elif field_type == FieldType.int16:
-                self.PrependSlot(&Fb_int16_t, field.slot_num, val, 0)
+                self.PrependSlot(&Fb_int16_t, field.slot_num, val, field.default)
             elif field_type == FieldType.int32:
-                self.PrependSlot(&Fb_int32_t, field.slot_num, val, 0)
+                self.PrependSlot(&Fb_int32_t, field.slot_num, val, field.default)
             elif field_type == FieldType.int64:
-                self.PrependSlot(&Fb_int64_t, field.slot_num, val, 0)
+                self.PrependSlot(&Fb_int64_t, field.slot_num, val, field.default)
             elif field_type == FieldType.float32:
-                self.PrependFloat32Slot(field.slot_num, val, 0.0)
+                self.PrependFloat32Slot(field.slot_num, val, field.default)
             elif field_type == FieldType.float64:
-                self.PrependFloat64Slot(field.slot_num, val, 0.0)
+                self.PrependFloat64Slot(field.slot_num, val, field.default)
         for f in blueprint.string_fields:
             field = f
             val = getattr(inst, field.name)
             self.PrependUOffsetTRelative(strings[val])
             self.Slot(field.slot_num)
+
+        for f in blueprint.optional_string_fields:
+            field = f
+            val = getattr(inst, field.name)
+            if val is not None:
+                self.PrependUOffsetTRelative(strings[val])
+                self.Slot(field.slot_num)
 
         return self.EndObject()
 
