@@ -91,6 +91,7 @@ def _make_fb_functions(cl):
     blueprint_fields = []
     blueprint_string_fields = []
     bp_opt_string_fields = []
+    bp_vec_string_fields = []
     mod = cl.__fb_module__
 
     for field in fields(cl):
@@ -145,6 +146,16 @@ def _make_fb_functions(cl):
             arg = type.__args__[0]
             if arg is str:
                 lists_of_strings.append(field.name)
+                bp_vec_string_fields.append(
+                    Field(
+                        _get_offsets_for_string(
+                            getattr(mod, f"{cl.__name__}Add{norm_field_name}")
+                        )[0],
+                        name,
+                        FieldType.vector_strings,
+                        None,
+                    )
+                )
             elif has(arg):
                 lists_of_tables.append((field.name, arg))
             elif arg in (int, float, bool):

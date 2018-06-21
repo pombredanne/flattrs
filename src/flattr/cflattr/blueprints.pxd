@@ -15,15 +15,17 @@ cpdef enum FieldType:
     float64,
     string,
     optional_string,
+    vector_of_strings,
 
 
 cdef class Field:
-    cdef uint8_t slot_num;
+    cdef uint8_t slot_num
     cdef object name
     cdef FieldType type
     cdef object default
+    cdef uint8_t alignment  // For vectors.
 
 
 cdef class Blueprint:
     cdef uint8_t num_slots
-    cdef list fields, string_fields, optional_string_fields
+    cdef list fields, string_fields, optional_string_fields, vectors_of_strings

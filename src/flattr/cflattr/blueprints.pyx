@@ -10,8 +10,9 @@ cdef class Field:
 
 
 cdef class Blueprint:
-    def __init__(self, num_slots, fields, string_fields, opt_string_fields):
+    def __init__(self, num_slots, fields, string_fields, opt_string_fields, vecs_of_strings):
         self.num_slots = num_slots
         self.fields = fields
         self.string_fields = string_fields
         self.optional_string_fields = opt_string_fields
+        self.vectors_of_strings = vecs_of_strings
