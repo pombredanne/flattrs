@@ -11,7 +11,7 @@ else:
 
 setup(
     name="flattrs",
-    version="0.1.4",
+    version="0.1.5",
     install_requires=["attrs", "flatbuffers==1.9", "numpy"],
     packages=find_packages(where="src"),
     package_dir={"": "src"},
@@ -19,4 +19,5 @@ setup(
     zip_safe=False,
     extras_require={"dev": ["pytest", "hypothesis", "cython"]},
     package_data={"": ["*.pxd", "*.pyx"]},
+    license="MIT license",
 )
